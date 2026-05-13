@@ -1,0 +1,12 @@
+<library path="arena_omni_drive_controller">
+  <class name="arena_omni_drive_controller/OmniDriveController"
+         type="arena_omni_drive_controller::OmniDriveController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Generic fixed-angle N-wheel omnidirectional drive controller. Consumes a
+      Twist reference and emits per-wheel velocity commands derived from a
+      configurable wheel-pose table; publishes nav_msgs/Odometry from measured
+      wheel state.
+    </description>
+  </class>
+</library>
