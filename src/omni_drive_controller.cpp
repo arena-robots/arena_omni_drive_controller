@@ -63,6 +63,18 @@ controller_interface::CallbackReturn
 OmniDriveController::on_configure(const rclcpp_lifecycle::State &)
 {
   params_ = param_listener_->get_params();
+  limiter_x_ = SpeedLimiter(
+    params_.linear.x.has_velocity_limits, params_.linear.x.min_velocity,
+    params_.linear.x.max_velocity, params_.linear.x.has_acceleration_limits,
+    params_.linear.x.min_acceleration, params_.linear.x.max_acceleration);
+  limiter_y_ = SpeedLimiter(
+    params_.linear.y.has_velocity_limits, params_.linear.y.min_velocity,
+    params_.linear.y.max_velocity, params_.linear.y.has_acceleration_limits,
+    params_.linear.y.min_acceleration, params_.linear.y.max_acceleration);
+  limiter_wz_ = SpeedLimiter(
+    params_.angular.z.has_velocity_limits, params_.angular.z.min_velocity,
+    params_.angular.z.max_velocity, params_.angular.z.has_acceleration_limits,
+    params_.angular.z.min_acceleration, params_.angular.z.max_acceleration);
   wheel_count_ = params_.wheel_joint_names.size();
 
   // Cross-field length validation that generate_parameter_library can't express.
@@ -213,6 +225,10 @@ OmniDriveController::on_activate(const rclcpp_lifecycle::State &)
   zero->header.stamp = get_node()->now();
   cmd_vel_buffer_.writeFromNonRT(zero);
 
+  last_vx_ = 0.0;
+  last_vy_ = 0.0;
+  last_wz_ = 0.0;
+
   odom_x_ = 0.0;
   odom_y_ = 0.0;
   odom_yaw_ = 0.0;
@@ -234,14 +250,25 @@ OmniDriveController::update(const rclcpp::Time & time, const rclcpp::Duration & 
 {
   auto cmd_ptr = *cmd_vel_buffer_.readFromRT();
   double vx = 0.0, vy = 0.0, wz = 0.0;
+  bool fresh = false;
   if (cmd_ptr) {
     const double age = (time - cmd_ptr->header.stamp).seconds();
     if (age < params_.cmd_vel_timeout) {
       vx = cmd_ptr->twist.linear.x;
       vy = cmd_ptr->twist.linear.y;
       wz = cmd_ptr->twist.angular.z;
+      fresh = true;
     }
   }
+  if (fresh) {
+    const double dt_cmd = period.seconds();
+    vx = limiter_x_.limit(vx, last_vx_, dt_cmd);
+    vy = limiter_y_.limit(vy, last_vy_, dt_cmd);
+    wz = limiter_wz_.limit(wz, last_wz_, dt_cmd);
+  }
+  last_vx_ = vx;
+  last_vy_ = vy;
+  last_wz_ = wz;
 
   // Inverse kinematics.
   const Eigen::Vector3d v(vx, vy, wz);
