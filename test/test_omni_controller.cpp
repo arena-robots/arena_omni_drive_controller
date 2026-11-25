@@ -321,6 +321,60 @@ TEST_F(OmniControllerTest, LengthMismatchFailsConfigure)
     lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
 }
 
+TEST_F(OmniControllerTest, VelocityLimitClampsForwardCommand)
+{
+  Build(kiwi_3omni());
+  ASSERT_EQ(
+    Init(
+      {rclcpp::Parameter("linear.x.has_velocity_limits", true),
+        rclcpp::Parameter("linear.x.max_velocity", 0.05)}),
+    controller_interface::return_type::OK);
+  ConfigureAndActivate();
+
+  const auto fwd = CommandTwist(0.1, 0.0, 0.0);
+  const auto back = CommandTwist(-0.1, 0.0, 0.0);
+  for (std::size_t i = 0; i < fwd.size(); ++i) {
+    const double expected = std::cos(geom_.theta[i]) * 0.05 / geom_.radius;
+    EXPECT_NEAR(fwd[i], expected, kTolerance) << "wheel[" << i << "]";
+    EXPECT_NEAR(back[i], -expected, kTolerance) << "wheel[" << i << "]";
+  }
+}
+
+TEST_F(OmniControllerTest, AccelerationLimitRampsForwardCommand)
+{
+  Build(kiwi_3omni());
+  ASSERT_EQ(
+    Init(
+      {rclcpp::Parameter("linear.x.has_acceleration_limits", true),
+        rclcpp::Parameter("linear.x.max_acceleration", 1.0)}),
+    controller_interface::return_type::OK);
+  ConfigureAndActivate();
+
+  const auto first = CommandTwist(0.5, 0.0, 0.0);
+  const rclcpp::Time t1 = controller_->get_node()->now();
+  const rclcpp::Duration dt = rclcpp::Duration::from_seconds(0.02);
+  EXPECT_EQ(controller_->update(t1, dt), controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < first.size(); ++i) {
+    EXPECT_NEAR(first[i], std::cos(geom_.theta[i]) * 0.02 / geom_.radius, kTolerance)
+      << "wheel[" << i << "]";
+    EXPECT_NEAR(wheel_cmd_vals_[i], std::cos(geom_.theta[i]) * 0.04 / geom_.radius, kTolerance)
+      << "wheel[" << i << "]";
+  }
+}
+
+TEST_F(OmniControllerTest, DefaultsLeaveCommandUnchanged)
+{
+  Build(kiwi_3omni());
+  ASSERT_EQ(Init(), controller_interface::return_type::OK);
+  ConfigureAndActivate();
+
+  const auto cmds = CommandTwist(5.0, 0.0, 0.0);
+  for (std::size_t i = 0; i < cmds.size(); ++i) {
+    EXPECT_NEAR(cmds[i], std::cos(geom_.theta[i]) * 5.0 / geom_.radius, kTolerance)
+      << "wheel[" << i << "]";
+  }
+}
+
 }  // namespace
 
 int main(int argc, char ** argv)
